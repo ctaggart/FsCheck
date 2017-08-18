@@ -86,6 +86,7 @@
     <Compile Include="StateMachine.fs" />
     <Compile Include="Runner.fs" />
     <Compile Include="RunnerExtensions.fs" />
+    <Compile Include="Urn.fs" />
     <None Include="Script.fsx" />
     <None Include="paket.template" />
   </ItemGroup>

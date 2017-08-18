@@ -206,20 +206,17 @@ module Gen =
     /// Build a generator that generates a value from one of the generators in the given non-empty seq, with
     /// given probabilities. The sum of the probabilities must be larger than zero.
     /// </summary>
-    /// <param name="xs">Sequence of tuples where each tuple contains a weight and a generator.</param>
+    /// <param name="weightedGens">Sequence of tuples where each tuple contains a weight and a generator.</param>
     /// <exception cref="System.ArgumentException">Thrown if the sum of the probabilities is less than or equal to 0.</exception>
     //[category: Creating generators from generators]
     [<CompiledName("Frequency")>]
-    let frequency xs =
-        let xs = Seq.toArray xs
-        let tot = Array.sumBy fst xs
-        let rec pick i n =
-            let k,x = xs.[i]
-            if n<=k then x else pick (i+1) (n-k)
+    let frequency weightedGens =
+        let urn = Urn.ofSeq weightedGens
+        let tot = Urn.totalWeight urn
         if tot <= 0 then 
-            invalidArg "xs" "Frequency was called with a sum of probabilities less than or equal to 0. No elements can be generated."
-        else
-            gen.Bind(choose (1,tot), pick 0)
+            invalidArg "weightedGens" "Frequency was called with a sum of probabilities less than or equal to 0. No elements can be generated."
+
+        gen.Bind(choose(0, tot), Urn.sample urn)
 
     let private frequencyOfWeighedSeq ws = 
         ws |> Seq.map (fun wv -> (wv.Weight, wv.Value)) |> frequency
@@ -349,7 +346,7 @@ module Gen =
                 go gs' (y::acc) size r2
         Gen(fun n r -> go (Seq.toList l) [] n r)
 
-    ///Sequence the given list of generators into a generator of a list.
+    ///Sequence the given sequence of generators into a generator of a sequence.
     //[category: Creating generators from generators]
     [<CompiledName("Sequence"); CompilerMessage("This method is not intended for use from F#.", 10001, IsHidden=true, IsError=false)>]
     let sequenceToSeq generators = 
@@ -364,7 +361,7 @@ module Gen =
                 yield g size r1
             }
 
-    ///Sequence the given list of generators into a generator of a list.
+    ///Sequence the given array of generators into a generator of an array.
     //[category: Creating generators from generators]
     [<CompiledName("Sequence"); CompilerMessage("This method is not intended for use from F#.", 10001, IsHidden=true, IsError=false)>]
     let sequenceToArr ([<ParamArrayAttribute>]generators:array<Gen<_>>) = 
@@ -580,6 +577,20 @@ module Gen =
               let! gn' = gn
               return f' gn' }
 
+
+    let backtrack weightedGens =
+        let urn = Urn.ofSeq weightedGens
+        let constantNone = constant None
+        let rec bt urn =
+            gen { let! i = choose(0, Urn.totalWeight urn)
+                  let ((_,g),urn') = Urn.remove i urn
+                  let! v = g
+                  match v with
+                  | Some _ -> return! g
+                  | None -> return! urn' |> Option.map bt |> Option.defaultValue constantNone
+            }
+        bt urn
+
     ///Promote the given function f to a function generator. Only used for generating arbitrary functions.
     let internal promote f = Gen (fun n r -> fun a -> let (Gen m) = f a in m n r)
 
@@ -602,7 +613,7 @@ module Gen =
         fun (v:'a) (Gen m:Gen<'b>) -> Gen (fun n r -> m n (Seq.item ((mapToInt v)+1) (rands r)))
 
 ///Operators for Gen.
-type Gen with
+type Gen<'a> with
 
     /// Lifted function application = apply f to a, all in the Gen applicative functor.
     static member (<*>) (f, a) = Gen.apply f a
